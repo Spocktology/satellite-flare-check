@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Satellite Flare Check</title>
+  <meta name="description" content="Check whether a satellite, satellite flare, planet or bright star was in the exact direction of a UFO sighting at the exact time.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230d1430'/%3E%3Cpath d='M16 4l3 9 9 3-9 3-3 9-3-9-9-3 9-3z' fill='%23ffb547'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css?v=3">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Satellite Flare Check</h1>
+      <p class="sub">Was it a satellite? See every catalogued orbital object that was in the exact direction you were looking, at the exact time of the sighting.</p>
+    </div>
+    <button class="icon-btn" id="infoBtn" title="How this works" aria-label="How this works">i</button>
+  </header>
+
+  <main class="layout">
+    <!-- ================= INPUTS ================= -->
+    <form class="panel inputs" id="form" autocomplete="off">
+      <section>
+        <h2><span class="num">1</span> Where were you?</h2>
+        <div class="row search-row">
+          <button type="button" class="icon-btn sq" id="gpsBtn" title="Use my current location" aria-label="Use my current location">
+            <svg viewBox="0 0 24 24" width="18" height="18"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="currentColor" stroke-width="2"/></svg>
+          </button>
+          <div class="search-box">
+            <input id="place" type="text" placeholder="City, airport, address — or 33.42, -111.83">
+            <ul id="placeResults" class="dropdown" hidden></ul>
+          </div>
+          <button type="button" class="btn small" id="placeBtn">Find</button>
+        </div>
+        <div class="grid3">
+          <label>Latitude<input id="lat" type="number" step="any" min="-90" max="90" placeholder="33.4152"></label>
+          <label>Longitude<input id="lon" type="number" step="any" min="-180" max="180" placeholder="-111.8315"></label>
+          <label>Altitude (ft)<input id="alt" type="number" step="any" min="0" max="60000" placeholder="ground"></label>
+        </div>
+        <p class="hint" id="placeName">Altitude: leave blank if you were on the ground; enter cruise altitude for pilots/passengers.</p>
+      </section>
+
+      <section>
+        <h2><span class="num">2</span> When?</h2>
+        <div class="grid2">
+          <label>Date &amp; time (to the second if you have it)<input id="when" type="datetime-local" step="1" required></label>
+          <label>Time zone<select id="tz"></select></label>
+        </div>
+        <div class="grid2">
+          <label>How long it lasted (min)<input id="dur" type="number" step="any" min="0" max="240" placeholder="0 = a moment"></label>
+          <label>Clock could be off by
+            <select id="win">
+              <option value="0">exact</option><option value="1">± 1 min</option><option value="2" selected>± 2 min</option><option value="5">± 5 min</option>
+              <option value="10">± 10 min</option><option value="20">± 20 min</option><option value="30">± 30 min</option>
+            </select>
+          </label>
+        </div>
+        <div class="row between"><button type="button" class="btn small" id="nowBtnForm" title="Set the time to right now">Happening now</button><span class="hint tzhint" id="utcEcho"></span></div>
+      </section>
+
+      <section>
+        <h2><span class="num">3</span> Which way were you looking?</h2>
+        <div class="grid3">
+          <label>Heading (°)<input id="heading" type="number" step="any" min="0" max="360" value="270"></label>
+          <label>Elevation (°)<input id="elev" type="number" step="any" min="-10" max="90" placeholder="unknown"></label>
+          <label>Tolerance ±(°)<input id="tol" type="number" step="any" min="1" max="90" value="10"></label>
+        </div>
+        <p class="hint">Heading: 0 = north, 90 = east, 180 = south, 270 = west. Elevation: degrees above the horizon (a fist at arm's length ≈ 10°). Or drag on the compass.</p>
+        <button type="button" class="btn small" id="aimBtn" hidden title="Point the top edge of your phone at the object, then tap">📱 Aim with phone</button>
+        <p class="hint" id="aimMsg" hidden></p>
+        <label class="check"><input type="checkbox" id="magnetic"> Heading is from a magnetic compass</label>
+        <label id="declWrap" hidden>Magnetic declination (° east +, west −)<input id="decl" type="number" step="any" value="0"></label>
+        <label>How was it seen?
+          <select id="detect">
+            <option value="6">Naked eye, dark rural sky (to mag 6)</option>
+            <option value="4.5" selected>Naked eye, suburban sky (to mag 4.5)</option>
+            <option value="3">Naked eye in a city / phone video (to mag 3)</option>
+            <option value="7.5">Good camera, long exposure or binoculars (to mag 7.5)</option>
+          </select>
+        </label>
+      </section>
+
+      <button type="submit" class="btn primary" id="runBtn">Analyze sighting</button>
+      <div class="progress" id="progress" hidden><div class="bar"><span id="progBar"></span></div><p id="progText"></p></div>
+
+      <details class="data" id="dataPanel">
+        <summary>Satellite data</summary>
+        <p class="hint">Orbital elements come from <a href="https://celestrak.org" target="_blank" rel="noopener">CelesTrak</a> and are fetched by your browser (cached for 2 hours). They describe objects <b>as of today</b>, which is accurate within a few days of the sighting.</p>
+        <div id="groups"></div>
+        <h3>Historical or extra data (.tle / .txt)</h3>
+        <p class="hint">For older sightings, load element sets from around the sighting date. For each object the tool picks the set closest in time to the sighting. <a href="#" id="histHelp">How to get historical data</a></p>
+        <input type="file" id="tleFile" accept=".tle,.txt,.3le" multiple>
+        <ul id="fileList" class="files"></ul>
+      </details>
+    </form>
+
+    <!-- ================= RESULTS ================= -->
+    <section class="results">
+      <div class="panel verdict" id="verdict">
+        <h2 id="vHead">Enter a sighting and press <em>Analyze</em></h2>
+        <div id="vBody"><p class="hint">You can drag the compass below to point where you were looking. After analysis, dragging re-checks that direction instantly.</p></div>
+      </div>
+
+      <div class="panel viewer">
+        <div class="viewer-head">
+          <h2>View along your heading</h2>
+          <div class="seg" id="spanSeg" role="group" aria-label="Horizontal field of view">
+            <button type="button" data-span="30">30°</button><button type="button" data-span="60">60°</button>
+            <button type="button" data-span="90" class="on">90°</button><button type="button" data-span="180">180°</button>
+          </div>
+        </div>
+        <canvas id="horizon" class="horizon"></canvas>
+        <div class="player">
+          <button type="button" class="icon-btn" id="playBtn" title="Play / pause" aria-label="Play">▶</button>
+          <div class="scrub-wrap">
+            <input type="range" id="scrub" min="0" max="0" step="0.01" value="0" aria-label="Time">
+            <div class="timeline"><span class="band" id="band"></span></div>
+          </div>
+          <select id="speed" title="Playback speed"><option value="1">1×</option><option value="5">5×</option><option value="20" selected>20×</option><option value="60">60×</option><option value="180">180×</option></select>
+          <button type="button" class="btn small" id="nowBtn" title="Jump to the start of the sighting">Sighting start</button>
+        </div>
+        <div class="timelabels" id="timelabels"></div>
+        <div class="toggles">
+          <label class="check"><input type="checkbox" id="showShadow"> Show objects in Earth's shadow</label>
+          <label class="check"><input type="checkbox" id="labels" checked> Labels</label>
+          <span class="legend">
+            <i class="dot" style="background:#ffd36b"></i>visible
+            <i class="dot" style="background:#ff8a3d"></i>flare geometry
+            <i class="dot" style="background:#dfe7ff"></i>sunlit, other
+            <i class="dot ring"></i>in shadow
+            <i class="dash"></i>your field of view
+          </span>
+        </div>
+      </div>
+
+      <div class="two">
+        <div class="panel">
+          <h2>Whole sky (map view, north up)</h2>
+          <canvas id="dome" class="dome"></canvas>
+          <p class="hint center">Drag to set where you were looking. Yellow arrow = heading.</p>
+        </div>
+        <div class="panel" id="detailPanel">
+          <h2>Selected object</h2>
+          <div id="detail"><p class="hint">Click a satellite in the view or a row in the table.</p></div>
+          <h2 class="mt">Natural objects in your view</h2>
+          <div id="celestial"><p class="hint">—</p></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="viewer-head">
+          <h2>Objects that crossed your field of view</h2>
+          <label class="check"><input type="checkbox" id="showNearby"> also show nearby objects</label>
+        </div>
+        <div class="table-wrap">
+          <table id="table">
+            <thead><tr><th>Object</th><th>Type</th><th>Status</th><th title="Time it was brightest inside your view (or closest to it)">When</th><th>Az / El</th><th>Est. mag</th><th title="Angle between the mirror-reflection of the Sun off an Earth-facing panel and your eye. Under ~3° = strong flare.">Flare angle</th><th>Range</th><th title="Days between the orbital data epoch and the sighting">Data age</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn small" id="copyReport" disabled>Copy text report</button>
+          <button type="button" class="btn small" id="copyLink">Copy link to this case</button>
+          <span class="hint" id="copyMsg"></span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    Orbits: <a href="https://celestrak.org" target="_blank" rel="noopener">CelesTrak</a> / NORAD · propagation: <a href="https://github.com/shashwatak/satellite-js" target="_blank" rel="noopener">satellite.js</a> (SGP4) ·
+    places: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a> ·
+    inspired by Mick West's <a href="https://www.metabunk.org/sitrec/" target="_blank" rel="noopener">Sitrec</a> horizon-flare work.
+    Brightness and flare estimates are approximate.
+  </footer>
+
+  <dialog id="info">
+    <form method="dialog"><button class="icon-btn close" aria-label="Close">×</button></form>
+    <h2>How this works</h2>
+    <p>For the time window you choose, the tool calculates the position of every object in the loaded catalogue (SGP4 orbit propagation) as seen from your location and altitude. For each object it then checks three things:</p>
+    <ol>
+      <li><b>Was it above your horizon and inside your field of view?</b> Your field of view is the heading/elevation you entered, ± the tolerance. From altitude, your horizon dips below eye level, and the tool accounts for that.</li>
+      <li><b>Was it in sunlight?</b> Satellites don't make their own light. If an object was in Earth's shadow, it was invisible.</li>
+      <li><b>How bright could it have been?</b> This uses a typical brightness for the object type, its distance, the Sun angle and atmospheric dimming. For Starlink, OneWeb, Kuiper, Qianfan, BlueBird and similar Earth-facing satellites, it also models the <b>horizon flare</b>: sunlight bouncing off the flat Earth-facing underside when the Sun is below the satellite. The <i>flare angle</i> column shows how close that reflection came to your eye (0° = dead-on).</li>
+    </ol>
+    <p>Rocket bodies and dead satellites tumble, so their flashes can't be predicted. Any one of them that was sunlit and in view is listed as a possible flash source.</p>
+    <h3>Limitations</h3>
+    <ul>
+      <li><b>Data age matters.</b> CelesTrak gives current orbits. Low satellites, Starlink especially, drift a lot within a few days, so for older sightings load historical element sets (see below). The tool warns you when the data is too old.</li>
+      <li><b>The free catalogue isn't everything.</b> "Active satellites" excludes most rocket bodies and debris. The optional groups add some. For the complete catalogue, load a full file from Space-Track.</li>
+      <li>Brightness and flare strength are estimates. Real flares depend on each satellite's exact orientation.</li>
+      <li>Aircraft, balloons and drones are not included.</li>
+    </ul>
+    <h3 id="histTitle">Historical data (for older sightings)</h3>
+    <ol>
+      <li>Create a free account at <a href="https://www.space-track.org" target="_blank" rel="noopener">space-track.org</a>.</li>
+      <li>Log in, then open a URL like this one, with your dates (sighting day − 2 to sighting day + 1):<br>
+        <code class="wrap">https://www.space-track.org/basicspacedata/query/class/gp_history/EPOCH/2025-03-12--2025-03-15/orderby/NORAD_CAT_ID/format/3le</code></li>
+      <li>Save the page as a <code>.tle</code> file and load it under <i>Satellite data → Historical or extra data</i>.</li>
+    </ol>
+    <p>The file is large (all tracked objects, every update in that window), but the tool picks the best element set for each object. Untick the CelesTrak groups if you want <i>only</i> the historical data.</p>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/satellite.js@5.0.0/dist/satellite.min.js"></script>
+  <script src="js/astro.js?v=3"></script>
+  <script src="js/catalog.js?v=3"></script>
+  <script src="js/engine.js?v=3"></script>
+  <script src="js/views.js?v=3"></script>
+  <script src="js/app.js?v=3"></script>
+</body>
+</html>
