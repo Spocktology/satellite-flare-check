@@ -188,7 +188,19 @@
     stop();
     try {
       await ensureData(progress);
-      const records = Catalog.select(t0, activeKeys());
+      const keys = activeKeys();
+      st.history = null;
+      if (Date.now() - (t0 + durSec * 1000) > 2 * 86400e3) {
+        progress(0, 'Loading archived orbital data for the sighting date…');
+        try {
+          st.history = await Catalog.loadHistoryFor(t0, t0 + durSec * 1000);
+          st.history.loaded.forEach((d) => keys.add('hist:' + d));
+        } catch (e) {
+          st.history = { loaded: [], error: e.message };
+        }
+      }
+      const records = Catalog.select(t0, keys);
+      if (st.history) st.history.dropped = Catalog.lastSelect.dropped;
       if (!records.length) throw new Error('No satellite data loaded. Tick a CelesTrak group or load a TLE file under "Satellite data".');
       const res = await E.analyze({ records, lat, lon, altKm: st.altKm, t0, durSec, padSec: Math.max(padSec, durSec ? 0 : 30) }, progress);
       // data age stats
@@ -303,9 +315,16 @@
     if ((st.dataErrors || []).length) {
       html = `<div class="caveat"><b>Not all satellite data loaded, so this result is incomplete.</b> Missing: ${st.dataErrors.map((d) => `${esc(d.label)} (${esc(d.msg)})`).join('; ')}. Try again in a few minutes or load a TLE file under <i>Satellite data</i>.</div>` + html;
     }
+    const H = st.history;
+    if (H && H.loaded.length) {
+      html += `<p class="hint">Orbital data: archived snapshot${H.loaded.length > 1 ? 's' : ''} from ${H.loaded.join(', ')} (UTC)${H.dropped ? `; ${H.dropped.toLocaleString()} objects missing from the archive for that date were left out (not yet launched, or already re-entered)` : ''}.</p>`;
+    }
     const age = res.medianAge;
     if (age > 3) {
-      html += `<div class="caveat${age < 7 ? ' mild' : ''}"><b>Orbital data is ${age.toFixed(0)} days ${res.signedAge > 0 ? 'older than' : 'newer than'} your sighting.</b> Low-orbit satellites, Starlink especially, may be far from their predicted spots, so specific identifications are unreliable${age > 14 ? '. Treat this result only as a rough idea of how busy that part of the sky usually is' : ''}. Load historical element sets for the sighting date (<a href="#" class="histLink">how</a>).</div>`;
+      let where = 'Load historical element sets for the sighting date (<a href="#" class="histLink">how</a>).';
+      if (H && H.first && !H.loaded.length) where = `This site's orbit archive starts on ${H.first}, after your sighting, so it can't help here. Load historical element sets from Space-Track instead (<a href="#" class="histLink">how</a>).`;
+      if (H && H.error) where = `The site's orbit archive couldn't be loaded (${esc(H.error)}). Load historical element sets from Space-Track instead (<a href="#" class="histLink">how</a>).`;
+      html += `<div class="caveat${age < 7 ? ' mild' : ''}"><b>Orbital data is ${age.toFixed(0)} days ${res.signedAge > 0 ? 'older than' : 'newer than'} your sighting.</b> Low-orbit satellites, Starlink especially, may be far from their predicted spots, so specific identifications are unreliable${age > 14 ? '. Treat this result only as a rough idea of how busy that part of the sky usually is' : ''}. ${where}</div>`;
     }
     if (res.failed > res.total * 0.05) html += `<div class="caveat mild">${res.failed.toLocaleString()} objects couldn't be propagated to this date (decayed, or data too old).</div>`;
     showVerdict(m.cls, m.head, html);

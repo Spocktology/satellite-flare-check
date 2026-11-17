@@ -66,6 +66,24 @@
     return { text: await r.text(), fetched: g.fetched, from: 'site mirror' };
   }
 
+  // ---------- Daily archive (history branch, built by the GitHub Action) ----------
+  const DEFAULT_HISTORY = 'https://raw.githubusercontent.com/Spocktology/satellite-flare-check/history/';
+  const historyBase = () => global.FLARE_HISTORY_BASE || DEFAULT_HISTORY;
+  let histIndexP = null;
+  function historyIndex() {
+    if (!histIndexP) {
+      histIndexP = fetch(historyBase() + 'index.json', { cache: 'no-cache' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => (j && Array.isArray(j.days) ? j.days : []))
+        .catch(() => []);
+    }
+    return histIndexP;
+  }
+  async function gunzipText(resp) {
+    if (!('DecompressionStream' in global)) throw new Error('this browser cannot read compressed archive files');
+    return await new Response(resp.body.pipeThrough(new DecompressionStream('gzip'))).text();
+  }
+
   // ---------- Parsing ----------
   function tleEpochMs(l1) {
     const yy = parseInt(l1.substring(18, 20), 10);
@@ -162,6 +180,35 @@
       return this.sources.get(key);
     },
 
+    historyIndex,
+
+    /* Load archived snapshots for the UTC days around a sighting (the snapshot
+     * taken just after the sighting holds the best-fitting orbits). Returns the
+     * days loaded, plus the archive's first day for messaging. */
+    async loadHistoryFor(t0, t1) {
+      const days = await historyIndex();
+      if (!days.length) return { loaded: [], first: null };
+      const want = new Set();
+      for (let t = t0 - 86400e3; t <= t1 + 2 * 86400e3; t += 86400e3) want.add(new Date(t).toISOString().slice(0, 10));
+      const pick = days.filter((d) => want.has(d)).slice(0, 4);
+      const loaded = [];
+      for (const day of pick) {
+        const key = 'hist:' + day;
+        if (!this.sources.has(key)) {
+          let text = (await cacheGet(key) || {}).text;
+          if (!text) {
+            const r = await fetch(historyBase() + day.slice(0, 4) + '/' + day + '.tle.gz');
+            if (!r.ok) throw new Error(`archive ${day}: HTTP ${r.status}`);
+            text = await gunzipText(r);
+            cachePut(key, { text, fetched: Date.now(), from: 'site archive' }); // snapshots never change
+          }
+          this.sources.set(key, { label: 'Archive ' + day, records: parseTLE(text, 'archive:' + day), fetched: Date.now(), kind: 'history' });
+        }
+        loaded.push(day);
+      }
+      return { loaded, first: days[0], last: days[days.length - 1] };
+    },
+
     addFile(name, text) {
       const records = parseTLE(text, 'file:' + name);
       if (!records.length) throw new Error('No TLE records found in ' + name);
@@ -185,13 +232,22 @@
           }
         }
       }
+      // If archived or user-loaded data covers the sighting date, drop objects
+      // known only from far-off (e.g. today's) data: they were probably not yet
+      // launched, or had already re-entered, at the time of the sighting.
+      const historical = (r) => r.src.startsWith('archive:') || r.src.startsWith('file:');
+      const DAY = 86400e3;
+      let covered = false, dropped = 0;
+      for (const r of best.values()) if (historical(r) && Math.abs(r.epochMs - t0) < 3 * DAY) { covered = true; break; }
       const out = [];
       for (const r of best.values()) {
+        if (covered && !historical(r) && Math.abs(r.epochMs - t0) > 5 * DAY) { dropped++; continue; }
         let satrec;
         try { satrec = satellite.twoline2satrec(r.l1, r.l2); } catch { continue; }
         if (!satrec || satrec.error) continue;
         out.push(Object.assign({}, r, classify(r), { satrec, ageDays: (t0 - r.epochMs) / 86400000 }));
       }
+      this.lastSelect = { covered, dropped };
       return out;
     },
 

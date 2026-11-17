@@ -77,7 +77,8 @@ If `SITE_URL` in the workflow changes (e.g. a custom domain), update it so the f
 
 - **CelesTrak** (orbital elements): a GitHub Action downloads them every 3 hours and publishes them with the site (`data/`), so visitors never hit CelesTrak's limit of one download per group every 2 hours per internet connection. If the site copy is missing or over 6 hours old, the browser falls back to CelesTrak directly. If data still fails to load, the result says **"Check incomplete"** instead of giving a false all-clear.
 - **Nominatim / OpenStreetMap** (place search): fine for light use (max ~1 request/second). If the tool gets heavy traffic, switch to a paid geocoder or self-host.
-- **Space-Track** (historical / full catalogue): requires a free account. Users download a TLE file and load it in the page. Instructions are in the in-app help.
+- **Daily archive** (built from the CelesTrak mirror, starting 2026-11-17): once per UTC day, the workflow saves a compressed snapshot of every mirrored object (~19k objects, ~1 MB) to the `history` branch, as `YYYY/YYYY-MM-DD.tle.gz` plus `index.json`. For sightings more than 2 days old, the app loads the snapshots around the sighting date from `raw.githubusercontent.com`. It also leaves out objects missing from that day's archive, which were not yet launched or had already re-entered. The archive grows by roughly 400 MB per year; past ~1 GB, move older years to a separate repo.
+- **Space-Track** (historical / full catalogue): requires a free account. For sightings before the archive starts, users download a TLE file and load it in the page. Instructions are in the in-app help. Space-Track's user agreement restricts redistributing its data, so Space-Track history is **not** republished on this site.
 
 ## Accuracy and limitations
 
