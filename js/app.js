@@ -126,20 +126,23 @@
 
   async function ensureData(progress) {
     const wanted = [...document.querySelectorAll('[data-group]')].filter((c) => c.checked).map((c) => c.dataset.group);
-    let i = 0;
+    st.dataErrors = [];
     for (const id of wanted) {
-      progress(0, `Loading satellite data: ${Catalog.GROUPS.find((g) => g.id === id).label}…`);
+      const label = Catalog.GROUPS.find((g) => g.id === id).label;
+      progress(0, `Loading satellite data: ${label}…`);
       const s0 = Catalog.sources.get('ct:' + id);
-      if (!s0 || Date.now() - s0.fetched > 2 * 3600e3) {
-        try {
-          const s = await Catalog.loadGroup(id);
-          const ago = Math.round((Date.now() - s.fetched) / 60000);
-          groupStatus(id, `✓ ${s.records.length.toLocaleString()} objects · fetched ${ago < 1 ? 'just now' : ago + ' min ago'}${s.note ? ' · ' + s.note : ''}`, 'ok');
-        } catch (e) {
-          groupStatus(id, '✗ ' + e.message, 'err');
-        }
+      if (s0 && Date.now() - s0.loadedAt < 30 * 60e3) continue;
+      try {
+        const s = await Catalog.loadGroup(id);
+        s.loadedAt = Date.now();
+        const mins = Math.round((Date.now() - s.fetched) / 60000);
+        const ago = mins < 1 ? 'just now' : mins < 120 ? mins + ' min ago' : Math.round(mins / 60) + ' h ago';
+        groupStatus(id, `✓ ${s.records.length.toLocaleString()} objects · ${s.from}, updated ${ago}${s.note ? ' · ' + s.note : ''}`, 'ok');
+      } catch (e) {
+        Catalog.remove('ct:' + id);
+        st.dataErrors.push({ id, label, msg: e.message });
+        groupStatus(id, '✗ ' + e.message, 'err');
       }
-      i++;
     }
   }
 
@@ -254,7 +257,9 @@
     const now = L.filter((x) => x.during);
     const tumblers = visible.filter((x) => x.o.rec.type !== 'payload' || !x.o.rec.nadirPanel);
     let cls, head;
-    if (!visible.length) { cls = 'good'; head = 'No catalogued satellite could have been seen there'; }
+    const dataErr = (st.dataErrors || []).length > 0;
+    if (!visible.length && dataErr) { cls = 'warn'; head = 'Check incomplete: some satellite data failed to load'; }
+    else if (!visible.length) { cls = 'good'; head = 'No catalogued satellite could have been seen there'; }
     else if (vFlares.length) { cls = 'flare'; head = vFlares.length === 1 ? 'Possible satellite flare in your field of view' : `${vFlares.length} possible satellite flares in your field of view`; }
     else { cls = 'warn'; head = `${visible.length} satellite${visible.length > 1 ? 's were' : ' was'} visible in that direction`; }
     return { res, S, visible, vFlares, faint, shadow, now, tumblers, cls, head };
@@ -295,6 +300,9 @@
     pts.push(`Sky: Sun ${sunEl.toFixed(1)}° (${tw}).${sunEl > -6 ? ' In a bright sky, only very bright objects or flares stand out.' : ''}`);
     html += '<ul>' + pts.map((p) => `<li>${p}</li>`).join('') + '</ul>';
 
+    if ((st.dataErrors || []).length) {
+      html = `<div class="caveat"><b>Not all satellite data loaded, so this result is incomplete.</b> Missing: ${st.dataErrors.map((d) => `${esc(d.label)} (${esc(d.msg)})`).join('; ')}. Try again in a few minutes or load a TLE file under <i>Satellite data</i>.</div>` + html;
+    }
     const age = res.medianAge;
     if (age > 3) {
       html += `<div class="caveat${age < 7 ? ' mild' : ''}"><b>Orbital data is ${age.toFixed(0)} days ${res.signedAge > 0 ? 'older than' : 'newer than'} your sighting.</b> Low-orbit satellites, Starlink especially, may be far from their predicted spots, so specific identifications are unreliable${age > 14 ? '. Treat this result only as a rough idea of how busy that part of the sky usually is' : ''}. Load historical element sets for the sighting date (<a href="#" class="histLink">how</a>).</div>`;
@@ -460,6 +468,7 @@
       `Sun: ${S.sunEl.toFixed(1)}° (${Astro.twilightName(S.sunEl)}); detection limit mag ${S.lim.toFixed(1)}`,
       `Objects checked: ${res.total}; orbital data median age ${res.medianAge.toFixed(1)} days`,
       '',
+      ...((st.dataErrors || []).length ? [`WARNING: missing data — ${st.dataErrors.map((d) => d.label).join(', ')}. Result is incomplete.`] : []),
       `RESULT: ${m.head}`,
       `  visible: ${m.visible.length} · flare geometry: ${m.vFlares.length} · too faint: ${m.faint.length} · in shadow: ${m.shadow.length} · visible during the sighting itself: ${m.now.length}`,
     ];

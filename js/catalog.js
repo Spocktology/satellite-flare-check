@@ -46,6 +46,26 @@
     } catch { /* storage unavailable — fine */ }
   }
 
+  // ---------- Site mirror (data/ folder published alongside the app) ----------
+  const MIRROR_STALE_MS = 6 * 3600 * 1000;
+  let metaP = null;
+  function mirrorMeta() {
+    if (!metaP) {
+      metaP = fetch('data/meta.json', { cache: 'no-cache' })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+    }
+    return metaP;
+  }
+  async function fetchMirror(id) {
+    const meta = await mirrorMeta();
+    const g = meta && meta.groups && meta.groups[id];
+    if (!g) return null; // no mirror (e.g. local development)
+    const r = await fetch('data/' + encodeURIComponent(id) + '.tle', { cache: 'no-cache' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return { text: await r.text(), fetched: g.fetched, from: 'site mirror' };
+  }
+
   // ---------- Parsing ----------
   function tleEpochMs(l1) {
     const yy = parseInt(l1.substring(18, 20), 10);
@@ -104,30 +124,41 @@
     GROUPS,
     sources: new Map(), // key -> {label, records, fetched, kind}
 
-    async loadGroup(id, { force = false } = {}) {
+    /* Load a CelesTrak group. Order of preference:
+     *  1. this browser's cached copy, if under 2 h old
+     *  2. the site's own mirror (data/<group>.tle, refreshed by a GitHub Action)
+     *  3. CelesTrak directly (only if the mirror is missing or over 6 h old)
+     *  4. any older cached copy
+     * Throws if nothing usable was found, so the caller can warn the user. */
+    async loadGroup(id) {
       const key = 'ct:' + id;
       const cached = await cacheGet(key);
-      const fresh = cached && Date.now() - cached.fetched < MAX_AGE_MS;
-      let text, fetched, note = '';
-      if (cached && (fresh || !force)) {
-        if (fresh || !navigator.onLine) { text = cached.text; fetched = cached.fetched; }
-      }
-      if (!text) {
+      let best = cached ? { text: cached.text, fetched: cached.fetched, from: cached.from || 'browser cache' } : null;
+      const errors = [];
+      if (!best || Date.now() - best.fetched >= MAX_AGE_MS) {
         try {
-          const r = await fetch(`${CELESTRAK}?GROUP=${encodeURIComponent(id)}&FORMAT=tle`);
-          if (!r.ok) throw new Error('HTTP ' + r.status);
-          text = await r.text();
-          if (!/^1 /m.test(text)) throw new Error(text.trim().slice(0, 80) || 'no data');
-          fetched = Date.now();
-          cachePut(key, { text, fetched });
-        } catch (e) {
-          if (cached) { text = cached.text; fetched = cached.fetched; note = 'using cached copy (' + e.message + ')'; }
-          else throw e;
+          const m = await fetchMirror(id);
+          if (m && (!best || m.fetched > best.fetched)) best = m;
+        } catch (e) { errors.push('site mirror: ' + e.message); }
+        if (!best || Date.now() - best.fetched > MIRROR_STALE_MS) {
+          try {
+            const r = await fetch(`${CELESTRAK}?GROUP=${encodeURIComponent(id)}&FORMAT=tle`);
+            const text = await r.text();
+            if (!r.ok || !/^1 /m.test(text)) {
+              const why = text.trim().replace(/\s+/g, ' ').slice(0, 160) || 'HTTP ' + r.status;
+              throw new Error(r.status === 403 ? why + ' (CelesTrak allows one download per group every 2 hours per internet connection)' : why);
+            }
+            best = { text, fetched: Date.now(), from: 'CelesTrak' };
+          } catch (e) { errors.push('CelesTrak: ' + e.message); }
         }
+        if (best && (!cached || best.fetched > cached.fetched)) cachePut(key, best);
       }
-      const records = parseTLE(text, 'CelesTrak:' + id);
+      if (!best) throw new Error(errors.join(' · ') || 'no data');
+      const records = parseTLE(best.text, 'CelesTrak:' + id);
+      if (!records.length) throw new Error('downloaded file contained no orbital data');
       const g = GROUPS.find((x) => x.id === id);
-      this.sources.set(key, { label: g ? g.label : id, records, fetched, kind: 'celestrak', note });
+      const note = Date.now() - best.fetched > MIRROR_STALE_MS && errors.length ? 'older copy — ' + errors.join(' · ') : '';
+      this.sources.set(key, { label: g ? g.label : id, records, fetched: best.fetched, from: best.from, kind: 'celestrak', note });
       return this.sources.get(key);
     },
 

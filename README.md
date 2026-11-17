@@ -39,9 +39,13 @@ Then open http://localhost:8765. Opening `index.html` directly as a file also mo
 
 ## Deploy to GitHub Pages
 
-1. Create a repo (e.g. `flare-check`), push these files to `main`.
-2. Repo **Settings → Pages → Source: Deploy from a branch → `main` / root**.
-3. The tool will be at `https://<your-user>.github.io/flare-check/`.
+Live at **https://spocktology.github.io/satellite-flare-check/**
+
+1. Repo **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+2. The workflow in `.github/workflows/deploy.yml` deploys the site on every push to `main` and every 3 hours. Each run downloads fresh CelesTrak data into `data/` (via `scripts/fetch_tle.py`) and publishes it with the site.
+3. To redeploy by hand: **Actions → Deploy site with fresh satellite data → Run workflow**.
+
+If `SITE_URL` in the workflow changes (e.g. a custom domain), update it so the fetch script can reuse the previous copy when CelesTrak refuses a download.
 
 ## Embed on UFOwizard.com
 
@@ -71,7 +75,7 @@ Then open http://localhost:8765. Opening `index.html` directly as a file also mo
 
 ## Data sources and etiquette
 
-- **CelesTrak** (orbital elements): fetched directly by each visitor's browser and cached for 2 hours in IndexedDB, per CelesTrak's request not to re-download faster than they update.
+- **CelesTrak** (orbital elements): a GitHub Action downloads them every 3 hours and publishes them with the site (`data/`), so visitors never hit CelesTrak's limit of one download per group every 2 hours per internet connection. If the site copy is missing or over 6 hours old, the browser falls back to CelesTrak directly. If data still fails to load, the result says **"Check incomplete"** instead of giving a false all-clear.
 - **Nominatim / OpenStreetMap** (place search): fine for light use (max ~1 request/second). If the tool gets heavy traffic, switch to a paid geocoder or self-host.
 - **Space-Track** (historical / full catalogue): requires a free account. Users download a TLE file and load it in the page. Instructions are in the in-app help.
 
