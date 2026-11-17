@@ -51,10 +51,7 @@ jobs:
             git -C ../history remote add origin "$REMOTE"
           fi
           python scripts/archive_snapshot.py data ../history
-          git -C ../history add -A
-          if git -C ../history diff --cached --quiet; then echo "no new snapshot"; exit 0; fi
-          git -C ../history commit --quiet -m "Snapshot $(date -u +%F)"
-          git -C ../history push --quiet origin history
+          bash scripts/push_history.sh ../history "CelesTrak snapshot $(date -u +%F)"
 
       - uses: actions/configure-pages@v5
 

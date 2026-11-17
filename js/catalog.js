@@ -74,8 +74,8 @@
     if (!histIndexP) {
       histIndexP = fetch(historyBase() + 'index.json', { cache: 'no-cache' })
         .then((r) => (r.ok ? r.json() : null))
-        .then((j) => (j && Array.isArray(j.days) ? j.days : []))
-        .catch(() => []);
+        .then((j) => (j && Array.isArray(j.days) ? j : { days: [], sources: {} }))
+        .catch(() => ({ days: [], sources: {} }));
     }
     return histIndexP;
   }
@@ -186,7 +186,8 @@
      * taken just after the sighting holds the best-fitting orbits). Returns the
      * days loaded, plus the archive's first day for messaging. */
     async loadHistoryFor(t0, t1) {
-      const days = await historyIndex();
+      const idx = await historyIndex();
+      const days = idx.days, srcOf = idx.sources || {};
       if (!days.length) return { loaded: [], first: null };
       const want = new Set();
       for (let t = t0 - 86400e3; t <= t1 + 2 * 86400e3; t += 86400e3) want.add(new Date(t).toISOString().slice(0, 10));
@@ -206,7 +207,8 @@
         }
         loaded.push(day);
       }
-      return { loaded, first: days[0], last: days[days.length - 1] };
+      const sources = [...new Set(loaded.map((d) => srcOf[d] || 'celestrak'))];
+      return { loaded, sources, first: days[0], last: days[days.length - 1] };
     },
 
     addFile(name, text) {

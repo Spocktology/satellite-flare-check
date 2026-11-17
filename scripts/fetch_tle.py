@@ -63,7 +63,7 @@ def main():
     with open("data/meta.json", "w", encoding="utf-8") as f:
         json.dump({"generated": int(time.time() * 1000), "groups": meta}, f)
     if "active" not in meta:
-        raise SystemExit("active group missing — not deploying an incomplete mirror")
+        raise SystemExit("active group missing - not deploying an incomplete mirror")
 
 
 if __name__ == "__main__":

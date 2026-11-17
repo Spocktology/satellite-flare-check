@@ -1,0 +1,60 @@
+name: Backfill orbit history from Space-Track
+
+# Fills the "history" branch with daily snapshots built from Space-Track
+# gp_history (basic SSA data; redistribution approved with citation).
+# Needs repo secrets SPACETRACK_USER and SPACETRACK_PASS. Each run handles up
+# to max_days days, newest first; scheduled runs continue until two years are
+# filled, then keep replacing each day's CelesTrak snapshot with the complete
+# Space-Track catalog once that day is final.
+
+on:
+  schedule:
+    - cron: "41 2,8,14,20 * * *"
+  workflow_dispatch:
+    inputs:
+      max_days:
+        description: "Days to fill in this run"
+        default: "120"
+      years:
+        description: "How far back to fill (years)"
+        default: "2"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: history-backfill
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check out the history branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git clone --quiet --depth 1 --branch history --single-branch \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ../history
+
+      - name: Build snapshots from Space-Track
+        env:
+          SPACETRACK_USER: ${{ secrets.SPACETRACK_USER }}
+          SPACETRACK_PASS: ${{ secrets.SPACETRACK_PASS }}
+        run: |
+          python scripts/backfill_spacetrack.py ../history \
+            --max-days "${{ github.event.inputs.max_days || '120' }}" \
+            --years "${{ github.event.inputs.years || '2' }}"
+
+      - name: Push to the history branch
+        if: always()
+        run: bash scripts/push_history.sh ../history "Space-Track snapshots ($(date -u +%F))"

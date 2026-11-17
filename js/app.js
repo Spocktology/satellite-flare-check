@@ -317,7 +317,8 @@
     }
     const H = st.history;
     if (H && H.loaded.length) {
-      html += `<p class="hint">Orbital data: archived snapshot${H.loaded.length > 1 ? 's' : ''} from ${H.loaded.join(', ')} (UTC)${H.dropped ? `; ${H.dropped.toLocaleString()} objects missing from the archive for that date were left out (not yet launched, or already re-entered)` : ''}.</p>`;
+      const by = (H.sources || []).map((s) => (s === 'space-track' ? 'Space-Track.org / USSPACECOM' : 'CelesTrak')).join(' and ');
+      html += `<p class="hint">Orbital data: archived snapshot${H.loaded.length > 1 ? 's' : ''} from ${H.loaded.join(', ')} (UTC), source ${by}${H.dropped ? `; ${H.dropped.toLocaleString()} objects missing from the archive for that date were left out (not yet launched, or already re-entered)` : ''}.</p>`;
     }
     const age = res.medianAge;
     if (age > 3) {
@@ -500,7 +501,7 @@
       }
     }
     if (S.celestial.length) lines.push('', 'Natural objects in view: ' + S.celestial.map((c) => `${c.name} (mag ${fmtMag(c.mag)}, az ${c.az.toFixed(0)}° el ${c.el.toFixed(1)}°)`).join('; '));
-    lines.push('', 'Brightness and flare estimates are approximate. Orbits: CelesTrak/NORAD, SGP4.');
+    lines.push('', 'Brightness and flare estimates are approximate. Orbits: CelesTrak and Space-Track.org (USSPACECOM), SGP4.');
     return lines.join('\n');
   }
 
