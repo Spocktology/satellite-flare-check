@@ -113,7 +113,40 @@
     $('lat').value = lat.toFixed(5); $('lon').value = lon.toFixed(5);
     st.placeLabel = label || '';
     $('placeName').textContent = label ? '📍 ' + label : '';
+    $('placeName').classList.remove('err');
     if (label) $('place').value = label.split(',').slice(0, 2).join(',');
+  }
+
+  // Current position from the device, with plain-language reasons when it fails.
+  async function locate() {
+    const out = $('placeName');
+    const fail = (text) => { out.textContent = '⚠ ' + text; out.classList.add('err'); throw new Error(text); };
+    out.classList.remove('err');
+    const embedded = window.parent !== window;
+    if (!window.isSecureContext) return Promise.reject(fail('Location needs a secure (https) page. Enter latitude and longitude instead.'));
+    if (!navigator.geolocation) return Promise.reject(fail('This browser has no location support. Enter latitude and longitude instead.'));
+    if (embedded && document.featurePolicy && !document.featurePolicy.allowsFeature('geolocation')) {
+      return Promise.reject(fail('The page this tool is embedded in does not allow location access (its iframe needs allow="geolocation"). Search for your town, or enter latitude and longitude.'));
+    }
+    out.textContent = 'Getting your location… (allow location access if your browser asks)';
+    const get = (high, timeout) => new Promise((ok, no) => navigator.geolocation.getCurrentPosition(ok, no, { enableHighAccuracy: high, timeout, maximumAge: 60000 }));
+    return get(true, 12000)
+      .catch((e) => (e.code === 1 ? Promise.reject(e) : get(false, 20000))) // GPS fix slow/unavailable: try network location
+      .then((p) => {
+        const c = p.coords;
+        setPlace(c.latitude, c.longitude, `My location (${c.latitude.toFixed(3)}, ${c.longitude.toFixed(3)}, ±${Math.round(c.accuracy)} m)`);
+        if (c.altitude > 100) $('alt').value = Math.round(c.altitude / 0.3048);
+        return p;
+      }, (e) => {
+        if (e.code === 1) {
+          fail(embedded
+            ? 'Location access was blocked. If you allowed it, the page this tool is embedded in may not permit it. Search for your town, or enter latitude and longitude.'
+            : 'Location access is blocked for this site. In Chrome, tap the icon left of the web address → Permissions → Location → Allow, then try again. Also check that Location is on in your phone settings.');
+        }
+        fail(e.code === 3
+          ? 'Your phone could not get a location fix in time. Check that Location is on, then try again, or enter latitude and longitude.'
+          : 'Location unavailable (' + (e.message || 'no fix') + '). Check that Location is on in your phone settings, or enter latitude and longitude.');
+      });
   }
 
   // ---------------- data ----------------
@@ -555,14 +588,7 @@
     $('placeBtn').addEventListener('click', findPlace);
     $('place').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); findPlace(); } });
     document.addEventListener('click', (e) => { if (!e.target.closest('.search-box') && e.target.id !== 'placeBtn') $('placeResults').hidden = true; });
-    $('gpsBtn').addEventListener('click', () => {
-      if (!navigator.geolocation) return;
-      $('placeName').textContent = 'Getting your location…';
-      navigator.geolocation.getCurrentPosition(
-        (p) => { setPlace(p.coords.latitude, p.coords.longitude, `My location (${p.coords.latitude.toFixed(3)}, ${p.coords.longitude.toFixed(3)})`); if (p.coords.altitude > 100) $('alt').value = Math.round(p.coords.altitude / 0.3048); },
-        (err) => { $('placeName').textContent = 'Location unavailable: ' + err.message + '. Enter it manually.'; },
-        { enableHighAccuracy: true, timeout: 15000 });
-    });
+    $('gpsBtn').addEventListener('click', () => { locate().catch(() => {}); });
     ['heading', 'elev', 'tol', 'decl'].forEach((id) => $(id).addEventListener('input', () => { readLook(); resummarizeSoon(); render(); }));
     $('magnetic').addEventListener('change', () => { $('declWrap').hidden = !$('magnetic').checked; readLook(); resummarize(); });
     $('detect').addEventListener('change', () => { st.magLimit = parseFloat($('detect').value); resummarize(); });
@@ -571,9 +597,16 @@
     $('alt').addEventListener('input', () => { if (!st.res) { const f = parseFloat($('alt').value); st.altKm = f > 0 ? f * 0.0003048 : 0; render(); } });
 
     $('playBtn').addEventListener('click', () => (st.playing ? stop() : play()));
-    $('nowBtnForm').addEventListener('click', () => {
+    // "Happening now": set the time, get a location if needed, and start the live check.
+    $('nowBtnForm').addEventListener('click', async () => {
       $('when').value = utcToZonedInput(Date.now(), $('tz').value);
+      if (!$('dur').value) $('dur').value = '15';
       updateUtcEcho();
+      if (!isFinite(parseFloat($('lat').value)) || !isFinite(parseFloat($('lon').value))) {
+        try { await locate(); } catch { $('placeName').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+      }
+      await run();
+      if (st.res) $('verdict').scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
     setupAim();
     $('scrub').addEventListener('input', () => { stop(); st.live = false; st.frame = parseFloat($('scrub').value); render(); renderDetail(); });
@@ -646,6 +679,12 @@
           if (p !== 'granted') throw new Error('permission denied');
         }
       } catch (e) { msg.hidden = false; msg.textContent = 'Motion sensors unavailable: ' + e.message; return; }
+      const fp = document.featurePolicy;
+      if (window.parent !== window && fp && !['accelerometer', 'gyroscope', 'magnetometer'].every((f) => fp.allowsFeature(f))) {
+        msg.hidden = false;
+        msg.textContent = 'The page this tool is embedded in does not allow compass access (its iframe needs allow="accelerometer; gyroscope; magnetometer"). Enter the heading by hand.';
+        return;
+      }
       evName = 'ondeviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation';
       window.addEventListener(evName, onOri);
       listening = true; reading = null; msg.hidden = false; btn.textContent = '🎯 Lock direction';
